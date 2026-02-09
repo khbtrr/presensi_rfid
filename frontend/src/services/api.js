@@ -36,7 +36,15 @@ export const memberAPI = {
     }),
 
     // Delete member
-    delete: (id) => api.delete(`/members/${id}`)
+    delete: (id) => api.delete(`/members/${id}`),
+
+    // Import members from file
+    import: (formData) => api.post('/members/import', formData, {
+        headers: { 'Content-Type': 'multipart/form-data' }
+    }),
+
+    // Get import template URL
+    getTemplateUrl: () => '/api/members/import/template'
 };
 
 // ============================================

@@ -94,8 +94,17 @@ export const iotAPI = {
     // Get IoT endpoint status
     getStatus: () => api.get('/iot/status'),
 
-    // Simulate card scan
-    scan: (rfid_uid, device_id = 'WEB') => api.post('/iot/scan', { rfid_uid, device_id })
+    // Simulate card scan (mode presensi)
+    scan: (rfid_uid, device_id = 'WEB') => api.post('/iot/scan', { rfid_uid, device_id }),
+
+    // Scan kartu untuk mode registrasi
+    scanForRegister: (rfid_uid, device_id = 'WEB') => api.post('/iot/scan-register', { rfid_uid, device_id }),
+
+    // Get last scanned card (polling untuk auto-fill UID)
+    getLastScanned: (since = 0) => api.get('/iot/last-scanned', { params: { since } }),
+
+    // Clear last scanned card (setelah berhasil register)
+    clearScanned: () => api.post('/iot/clear-scanned')
 };
 
 export default api;

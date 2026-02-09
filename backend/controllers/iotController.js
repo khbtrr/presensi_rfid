@@ -13,6 +13,18 @@ const { Op } = require('sequelize');
 // Batas waktu terlambat (default 08:00:00)
 const LATE_THRESHOLD = process.env.LATE_THRESHOLD || '08:00:00';
 
+// ============================================
+// Storage untuk mode registrasi kartu
+// ============================================
+let lastScannedCard = {
+    uid: null,
+    timestamp: null,
+    device_id: null
+};
+
+// Batas waktu UID dianggap valid (30 detik)
+const SCAN_EXPIRE_TIME = 30000;
+
 /**
  * Helper: Mendapatkan waktu sekarang dalam format HH:mm:ss
  */
@@ -223,7 +235,110 @@ const getStatus = async (req, res) => {
     });
 };
 
+/**
+ * POST /api/iot/scan-register
+ * Menerima scan kartu untuk mode registrasi (hanya menyimpan UID, tidak proses presensi)
+ * 
+ * Request Body:
+ * {
+ *   "rfid_uid": "XXYYZZ",
+ *   "device_id": "GATE1"
+ * }
+ */
+const scanForRegister = async (req, res) => {
+    try {
+        const { rfid_uid, device_id } = req.body;
+
+        if (!rfid_uid) {
+            return res.status(400).json({
+                success: false,
+                error: 'INVALID_REQUEST',
+                message: 'rfid_uid diperlukan'
+            });
+        }
+
+        // Simpan UID untuk polling frontend
+        lastScannedCard = {
+            uid: rfid_uid.toUpperCase(),
+            timestamp: Date.now(),
+            device_id: device_id || 'unknown'
+        };
+
+        console.log(`[IoT] Scan for register - UID: ${lastScannedCard.uid}, Device: ${lastScannedCard.device_id}`);
+
+        return res.json({
+            success: true,
+            message: 'UID kartu berhasil disimpan untuk registrasi',
+            data: {
+                uid: lastScannedCard.uid,
+                timestamp: new Date(lastScannedCard.timestamp).toISOString()
+            }
+        });
+
+    } catch (error) {
+        console.error('[IoT] Error scan-register:', error);
+        return res.status(500).json({
+            success: false,
+            error: 'SERVER_ERROR',
+            message: 'Terjadi kesalahan server'
+        });
+    }
+};
+
+/**
+ * GET /api/iot/last-scanned
+ * Mengambil UID kartu terakhir yang di-scan (untuk polling frontend saat registrasi)
+ * 
+ * Query params:
+ * - since: timestamp untuk mencegah duplikat
+ */
+const getLastScanned = async (req, res) => {
+    const { since } = req.query;
+    const sinceTimestamp = since ? parseInt(since) : 0;
+
+    // Cek apakah ada scan baru dan belum expired
+    if (lastScannedCard.uid &&
+        lastScannedCard.timestamp > sinceTimestamp &&
+        (Date.now() - lastScannedCard.timestamp) < SCAN_EXPIRE_TIME) {
+
+        return res.json({
+            success: true,
+            data: {
+                uid: lastScannedCard.uid,
+                timestamp: lastScannedCard.timestamp,
+                device_id: lastScannedCard.device_id
+            }
+        });
+    }
+
+    // Tidak ada scan baru
+    return res.json({
+        success: true,
+        data: null
+    });
+};
+
+/**
+ * POST /api/iot/clear-scanned
+ * Menghapus UID terakhir yang tersimpan (dipanggil setelah berhasil register)
+ */
+const clearLastScanned = async (req, res) => {
+    lastScannedCard = {
+        uid: null,
+        timestamp: null,
+        device_id: null
+    };
+
+    return res.json({
+        success: true,
+        message: 'Last scanned card cleared'
+    });
+};
+
 module.exports = {
     scanCard,
-    getStatus
+    getStatus,
+    scanForRegister,
+    getLastScanned,
+    clearLastScanned
 };

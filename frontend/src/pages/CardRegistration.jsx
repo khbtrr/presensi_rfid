@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import {
     Plus,
     CreditCard,
@@ -8,9 +8,10 @@ import {
     ToggleLeft,
     ToggleRight,
     X,
-    Check
+    Check,
+    Wifi
 } from 'lucide-react';
-import { cardAPI, memberAPI } from '../services/api';
+import { cardAPI, memberAPI, iotAPI } from '../services/api';
 
 function CardRegistration() {
     const [cards, setCards] = useState([]);
@@ -27,6 +28,11 @@ function CardRegistration() {
     });
     const [formError, setFormError] = useState('');
     const [submitting, setSubmitting] = useState(false);
+
+    // Polling state untuk auto-fill UID
+    const [isPolling, setIsPolling] = useState(false);
+    const [lastPollTimestamp, setLastPollTimestamp] = useState(0);
+    const pollingIntervalRef = useRef(null);
 
     // Fetch data
     const fetchData = async () => {
@@ -49,6 +55,39 @@ function CardRegistration() {
         fetchData();
     }, []);
 
+    // Polling untuk auto-fill UID saat modal terbuka
+    useEffect(() => {
+        if (showModal) {
+            // Mulai polling
+            setIsPolling(true);
+            setLastPollTimestamp(Date.now());
+
+            const pollForCard = async () => {
+                try {
+                    const response = await iotAPI.getLastScanned(lastPollTimestamp);
+                    if (response.data.success && response.data.data) {
+                        const { uid, timestamp } = response.data.data;
+                        setFormData(prev => ({ ...prev, uid_code: uid }));
+                        setLastPollTimestamp(timestamp);
+                    }
+                } catch (error) {
+                    console.error('Error polling for card:', error);
+                }
+            };
+
+            // Poll setiap 1 detik
+            pollingIntervalRef.current = setInterval(pollForCard, 1000);
+
+            return () => {
+                // Cleanup saat modal ditutup
+                if (pollingIntervalRef.current) {
+                    clearInterval(pollingIntervalRef.current);
+                }
+                setIsPolling(false);
+            };
+        }
+    }, [showModal, lastPollTimestamp]);
+
     // Handle form input
     const handleInputChange = (e) => {
         const { name, value } = e.target;
@@ -61,7 +100,7 @@ function CardRegistration() {
         e.preventDefault();
 
         if (!formData.uid_code) {
-            setFormError('UID Kartu wajib diisi');
+            setFormError('UID Kartu wajib diisi. Silakan tap kartu pada reader.');
             return;
         }
 
@@ -71,6 +110,9 @@ function CardRegistration() {
                 uid_code: formData.uid_code.toUpperCase(),
                 member_id: formData.member_id || null
             });
+
+            // Clear scanned card di server
+            await iotAPI.clearScanned();
 
             setShowModal(false);
             setFormData({ uid_code: '', member_id: '' });
@@ -256,21 +298,35 @@ function CardRegistration() {
                                 </div>
                             )}
 
-                            {/* UID Code */}
+                            {/* UID Code - Auto-fill dari tap kartu */}
                             <div>
                                 <label className="block text-sm font-medium text-gray-700 mb-1">
                                     UID Kartu <span className="text-danger-500">*</span>
                                 </label>
-                                <input
-                                    type="text"
-                                    name="uid_code"
-                                    value={formData.uid_code}
-                                    onChange={handleInputChange}
-                                    placeholder="Masukkan UID kartu (misal: A1B2C3D4)"
-                                    className="input font-mono uppercase"
-                                />
-                                <p className="text-xs text-gray-500 mt-1">
-                                    UID dapat dilihat dari serial monitor saat kartu di-tap
+                                <div className="relative">
+                                    <input
+                                        type="text"
+                                        name="uid_code"
+                                        value={formData.uid_code}
+                                        readOnly
+                                        placeholder={isPolling ? "Menunggu tap kartu..." : "UID akan terisi otomatis"}
+                                        className={`input font-mono uppercase pr-10 ${formData.uid_code
+                                                ? 'border-success-500 bg-success-50'
+                                                : 'border-primary-300 bg-primary-50'
+                                            }`}
+                                    />
+                                    <div className="absolute right-3 top-1/2 -translate-y-1/2">
+                                        {formData.uid_code ? (
+                                            <Check className="w-5 h-5 text-success-500" />
+                                        ) : (
+                                            <Wifi className={`w-5 h-5 text-primary-500 ${isPolling ? 'animate-pulse' : ''}`} />
+                                        )}
+                                    </div>
+                                </div>
+                                <p className={`text-xs mt-1 ${formData.uid_code ? 'text-success-600' : 'text-primary-600'}`}>
+                                    {formData.uid_code
+                                        ? '✓ Kartu terdeteksi! Silakan lanjutkan pendaftaran.'
+                                        : '📶 Tempelkan kartu RFID pada reader untuk mengisi UID otomatis'}
                                 </p>
                             </div>
 
